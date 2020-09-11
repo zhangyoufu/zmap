@@ -128,8 +128,50 @@ static int synscan_validate_packet(const struct ip *ip_hdr, uint32_t len,
 	return 1;
 }
 
+static uint64_t find_mss(const u_char *packet,
+				   uint32_t len,
+				   const struct tcphdr *tcp)
+{
+	if (tcp->th_off <= 5) {
+		return 0;
+	}
+
+	// process TCP options
+	uint32_t offset = (uintptr_t)tcp - (uintptr_t)packet;
+	uint32_t data_offset = offset + 4 * tcp->th_off;
+	if (data_offset < len) {
+		len = data_offset;
+	}
+	offset += 20;
+	while (offset < len) {
+		switch (packet[offset]) {
+		case 0: // end of option list
+			return 0;
+		case 1: // no operation
+			offset++;
+			continue;
+		case 2: // max segment size
+			if (offset + 2 >= len) {
+				return 0;
+			}
+			u_char length = packet[offset + 1];
+			if (length != 4 || offset + length > len) {
+				return 0;
+			}
+			return ntohs(*(uint16_t*)(&packet[offset+2]));
+		default: // unknown
+			if (offset + 2 >= len) {
+				return 0;
+			}
+			offset += packet[offset + 1];
+			continue;
+		}
+	}
+	return 0;
+}
+
 static void synscan_process_packet(const u_char *packet,
-				   __attribute__((unused)) uint32_t len,
+				   uint32_t len,
 				   fieldset_t *fs,
 				   __attribute__((unused)) uint32_t *validation,
 				   __attribute__((unused)) struct timespec ts)
@@ -143,6 +185,7 @@ static void synscan_process_packet(const u_char *packet,
 	fs_add_uint64(fs, "seqnum", (uint64_t)ntohl(tcp->th_seq));
 	fs_add_uint64(fs, "acknum", (uint64_t)ntohl(tcp->th_ack));
 	fs_add_uint64(fs, "window", (uint64_t)ntohs(tcp->th_win));
+	fs_add_uint64(fs, "mss", find_mss(packet, len, tcp));
 
 	if (tcp->th_flags & TH_RST) { // RST packet
 		fs_add_string(fs, "classification", (char *)"rst", 0);
@@ -159,6 +202,7 @@ static fielddef_t fields[] = {
     {.name = "seqnum", .type = "int", .desc = "TCP sequence number"},
     {.name = "acknum", .type = "int", .desc = "TCP acknowledgement number"},
     {.name = "window", .type = "int", .desc = "TCP window"},
+    {.name = "mss", .type = "int", .desc = "TCP max segment size"},
     {.name = "classification",
      .type = "string",
      .desc = "packet classification"},
@@ -185,4 +229,4 @@ probe_module_t module_tcp_synscan = {
 		"is considered a failed response.",
     .output_type = OUTPUT_TYPE_STATIC,
     .fields = fields,
-    .numfields = 7};
+    .numfields = 8};
