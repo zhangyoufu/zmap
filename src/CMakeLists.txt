@@ -216,9 +216,9 @@ target_link_libraries(
     zmap
     zmaplib
     ${PFRING_LIBRARIES}
-    pcap gmp m unistring
+    libpcap.a gmp m libunistring.a
     ${DNET_LIBRARIES}
-    ${JSON_LIBRARIES}
+    libjson-c.a
 )
 
 target_link_libraries(
