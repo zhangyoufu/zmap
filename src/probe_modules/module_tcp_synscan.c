@@ -21,8 +21,8 @@
 #include "packet.h"
 #include "validate.h"
 
-#define ZMAP_TCP_SYNSCAN_TCP_HEADER_LEN 24
-#define ZMAP_TCP_SYNSCAN_PACKET_LEN 58
+#define ZMAP_TCP_SYNSCAN_TCP_HEADER_LEN 28
+#define ZMAP_TCP_SYNSCAN_PACKET_LEN 62
 
 probe_module_t module_tcp_synscan;
 
@@ -48,6 +48,7 @@ static int synscan_init_perthread(void *buf, macaddr_t *src, macaddr_t *gw,
 	struct tcphdr *tcp_header = (struct tcphdr *)(&ip_header[1]);
 	make_tcp_header(tcp_header, dst_port, TH_SYN);
 	set_mss_option(tcp_header);
+	set_wscale_option(tcp_header);
 	return EXIT_SUCCESS;
 }
 
@@ -165,8 +166,62 @@ static int synscan_validate_packet(const struct ip *ip_hdr, uint32_t len,
 	return PACKET_VALID;
 }
 
+static void parse_tcp_options(const u_char *packet,
+				   uint32_t len,
+				   const struct tcphdr *tcp,
+				   uint64_t *mss,
+				   uint64_t *wscale)
+{
+	if (tcp->th_off <= 5) {
+		return;
+	}
+
+	// process TCP options
+	uint32_t offset = (uintptr_t)tcp - (uintptr_t)packet;
+	uint32_t data_offset = offset + 4 * tcp->th_off;
+	if (data_offset < len) {
+		len = data_offset;
+	}
+	offset += 20;
+	while (offset < len) {
+		u_char optlen;
+		switch (packet[offset]) {
+		case 0: // end of option list
+			return;
+		case 1: // no operation
+			optlen = 1;
+			break;
+		case 2: // max segment size
+			if (offset + 4 > len) {
+				return;
+			}
+			optlen = packet[offset + 1];
+			if (optlen == 4) {
+				*mss = ntohs(*(uint16_t*)(&packet[offset + 2]));
+			}
+			break;
+		case 3: // window scale
+			if (offset + 3 > len) {
+				return;
+			}
+			optlen = packet[offset + 1];
+			if (optlen == 3) {
+				*wscale = packet[offset + 2];
+			}
+			break;
+		default: // unknown
+			if (offset + 2 >= len) {
+				return;
+			}
+			optlen = packet[offset + 1];
+			break;
+		}
+		offset += optlen;
+	}
+}
+
 static void synscan_process_packet(const u_char *packet,
-				   UNUSED uint32_t len,
+				   uint32_t len,
 				   fieldset_t *fs,
 				   UNUSED uint32_t *validation,
 				   UNUSED struct timespec ts)
@@ -181,6 +236,12 @@ static void synscan_process_packet(const u_char *packet,
 		fs_add_uint64(fs, "seqnum", (uint64_t)ntohl(tcp->th_seq));
 		fs_add_uint64(fs, "acknum", (uint64_t)ntohl(tcp->th_ack));
 		fs_add_uint64(fs, "window", (uint64_t)ntohs(tcp->th_win));
+
+		uint64_t mss = 0, wscale = 0;
+		parse_tcp_options(packet, len, tcp, &mss, &wscale);
+		fs_add_uint64(fs, "mss", mss);
+		fs_add_uint64(fs, "wscale", wscale);
+
 		if (tcp->th_flags & TH_RST) { // RST packet
 			fs_add_constchar(fs, "classification", "rst");
 			fs_add_bool(fs, "success", 0);
@@ -196,6 +257,8 @@ static void synscan_process_packet(const u_char *packet,
 		fs_add_null(fs, "seqnum");
 		fs_add_null(fs, "acknum");
 		fs_add_null(fs, "window");
+		fs_add_null(fs, "mss");
+		fs_add_null(fs, "wscale");
 		// global
 		fs_add_constchar(fs, "classification", "icmp");
 		fs_add_bool(fs, "success", 0);
@@ -210,6 +273,8 @@ static fielddef_t fields[] = {
     {.name = "seqnum", .type = "int", .desc = "TCP sequence number"},
     {.name = "acknum", .type = "int", .desc = "TCP acknowledgement number"},
     {.name = "window", .type = "int", .desc = "TCP window"},
+    {.name = "mss", .type = "int", .desc = "TCP max segment size"},
+    {.name = "wscale", .type = "int", .desc = "TCP window scale"},
     CLASSIFICATION_SUCCESS_FIELDSET_FIELDS,
     ICMP_FIELDSET_FIELDS,
 };

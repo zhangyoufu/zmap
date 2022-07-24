@@ -136,6 +136,20 @@ size_t set_mss_option(struct tcphdr *tcp_header) {
 	return tcp_header->th_off*4;
 }
 
+void set_wscale_option(struct tcphdr *tcp_header) {
+	// This only sets wscale, followed by a nop.
+	size_t header_size = tcp_header->th_off * 4;
+	uint8_t *base = (uint8_t *) tcp_header;
+	uint8_t *last_opt = (uint8_t*) base + header_size;
+
+	last_opt[0] = 0x03; // kind: window scale
+	last_opt[1] = 0x03; // length: 3
+	last_opt[2] = 0;    // shift: 0
+	last_opt[3] = 0x01; // kind: nop
+
+	tcp_header->th_off += 1;
+}
+
 void make_udp_header(struct udphdr *udp_header, port_h_t dest_port,
 		     uint16_t len)
 {
