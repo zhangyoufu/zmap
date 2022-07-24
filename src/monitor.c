@@ -93,7 +93,7 @@ typedef struct export_scan_status {
 	char pcap_drop_avg_str[NUMBER_STR_LEN];
 
 	uint32_t time_remaining;
-	char time_remaining_str[NUMBER_STR_LEN];
+	char time_remaining_str[NUMBER_STR_LEN+8];
 	uint32_t time_past;
 	char time_past_str[NUMBER_STR_LEN];
 
@@ -190,7 +190,7 @@ static void export_stats(int_status_t *intrnl, export_status_t *exp,
 	} else {
 		char buf[20];
 		time_string(ceil(remaining_secs), 1, buf, sizeof(buf));
-		snprintf(exp->time_remaining_str, NUMBER_STR_LEN, " (%s left)",
+		snprintf(exp->time_remaining_str, sizeof exp->time_remaining_str, " (%s left)",
 			 buf);
 	}
 	exp->time_past = age;
