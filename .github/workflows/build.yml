@@ -20,7 +20,7 @@ jobs:
         cmake --build .
         cpack -G TGZ -D CPACK_PACKAGE_FILE_NAME=zmap -D CPACK_INCLUDE_TOPLEVEL_DIRECTORY=OFF
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         path: build/zmap.tar.gz
         if-no-files-found: error
