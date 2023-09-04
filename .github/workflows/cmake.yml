@@ -18,7 +18,7 @@ jobs:
       volumes:
         - ${{github.workspace}}:/zmap
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Make build directory
         run: mkdir -p /zmap/build
